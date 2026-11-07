@@ -1,0 +1,30 @@
+{
+  "name": "ai-agent",
+  "version": "1.0.0",
+  "description": "A learning project for building a local AI agent in TypeScript with Node.js and Ollama.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HimanshuHD/ai-agent.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/HimanshuHD/ai-agent/issues"
+  },
+  "homepage": "https://github.com/HimanshuHD/ai-agent#readme",
+  "engines": {
+    "node": ">=24"
+  },
+  "private": true,
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^7.0.2"
+  }
+}
