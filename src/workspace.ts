@@ -4,7 +4,7 @@ import path from "node:path";
 export type Workspace = { root: string; excludePaths: string[] };
 export const listingLimits = { maxDepth: 8, maxEntries: 10_000, maxResults: 500 };
 type Limits = typeof listingLimits;
-type LimitReason = "depth" | "entries" | "results";
+type LimitReason = "depth" | "entries" | "results" | "time";
 
 const excludedNames = new Set([
   ".git", "node_modules", "dist", "build", "coverage", ".next", ".nuxt",
@@ -80,7 +80,7 @@ export async function resolveWorkspacePath(workspace: Workspace, input: string, 
   return current;
 }
 
-export async function listFiles(workspace: Workspace, directory = ".", limits: Limits = listingLimits) {
+export async function listFiles(workspace: Workspace, directory = ".", limits: Limits = listingLimits, isExpired: () => boolean = () => false) {
   for (const [name, value] of Object.entries(limits)) {
     if (!Number.isInteger(value) || value < (name === "maxDepth" ? 0 : 1)) {
       throw new Error(`Invalid listing limit: ${name}.`);
@@ -94,12 +94,20 @@ export async function listFiles(workspace: Workspace, directory = ".", limits: L
   const relativeName = (absolute: string) => path.relative(workspace.root, absolute).split(path.sep).join("/") || ".";
 
   async function visit(absolute: string, depth: number): Promise<void> {
+    if (isExpired()) {
+      reasons.add("time");
+      return;
+    }
     if (files.length >= limits.maxResults || entriesVisited >= limits.maxEntries) return;
     // Stream entries so reading a huge directory does not allocate an unbounded array.
     const entries: string[] = [];
     try {
       const handle = await fs.opendir(absolute);
       for await (const entry of handle) {
+        if (isExpired()) {
+          reasons.add("time");
+          break;
+        }
         if (entriesVisited >= limits.maxEntries) {
           reasons.add("entries");
           break;
@@ -115,6 +123,10 @@ export async function listFiles(workspace: Workspace, directory = ".", limits: L
 
     entries.sort();
     for (const name of entries) {
+      if (isExpired()) {
+        reasons.add("time");
+        break;
+      }
       const fullPath = path.join(absolute, name);
       const relative = relativeName(fullPath);
       if (isExcluded(relative, workspace)) continue;
