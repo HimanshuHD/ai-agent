@@ -1,17 +1,13 @@
 import { runAgent } from "./agent.js";
+import { parseArgs } from "./cli.js";
+import { createWorkspace } from "./workspace.js";
 
-const prompt = process.argv.slice(2).join(" ").trim();
-
-if (!prompt) {
-  console.error("Usage: npm start -- \"Your prompt\"");
-  process.exitCode = 1;
+try {
+  const { prompt, workspacePath, excludePaths } = parseArgs(process.argv.slice(2));
+  const workspace = workspacePath === undefined ? undefined : await createWorkspace(workspacePath, excludePaths);
+  console.log(await runAgent(prompt, workspace));
 }
-else {
-  try {
-    console.log(await runAgent(prompt));
-  }
-  catch (error) {
-    console.error("Agent run failed..!!", error);
-    process.exitCode = 1;
-  }
+catch (error) {
+  console.error("Agent run failed..!!", error);
+  process.exitCode = 1;
 }
