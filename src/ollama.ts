@@ -64,17 +64,23 @@ const model = process.env.OLLAMA_MODEL?.trim() || "qwen3:1.7b";
 export async function chat(
   messages: Message[],
   tools: ToolDefinition[] = [],
+  signal?: AbortSignal,
 ): Promise<Extract<Message, { role: "assistant" }>> {
+  signal?.throwIfAborted();
+  const requestSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(180_000)])
+    : AbortSignal.timeout(180_000);
   let response: Response;
   try {
     response = await fetch("http://localhost:11434/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model, messages, tools, stream: false }),
-      signal: AbortSignal.timeout(180_000),
+      signal: requestSignal,
     });
   }
   catch (error) {
+    if (signal?.aborted) throw new Error("Agent run cancelled.", { cause: error });
     if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
       throw new Error("Ollama request timed out after 180 seconds.", { cause: error });
     }
@@ -90,6 +96,7 @@ export async function chat(
     result = await response.json();
   }
   catch (error) {
+    if (signal?.aborted) throw new Error("Agent run cancelled.", { cause: error });
     if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
       throw new Error("Ollama request timed out after 180 seconds.", { cause: error });
     }

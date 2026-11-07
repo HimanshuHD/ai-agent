@@ -417,3 +417,111 @@ npm start -- --workspace "D:\GitHub\ai-agent" --exclude "src" "Search inside src
 Expect an explicit complete no-match result for the first prompt if no limits or
 access errors occur, and a clear access limitation for the excluded directory.
 Repeat existing reading, listing, general-question, and UTC-time examples.
+
+## Interactive conversations
+
+Start an in-memory terminal conversation:
+
+```powershell
+npm start -- --interactive
+npm start -- --interactive --workspace "D:\GitHub\ai-agent" --exclude "private"
+```
+
+Enter prompts at `>`. Do not supply an initial prompt alongside `--interactive`;
+enter it after the session opens. One-shot commands continue to work as before.
+
+| Input | Behavior |
+| --- | --- |
+| A nonempty prompt | Run one user turn and retain successful context |
+| Empty or whitespace-only input | Ignore without calling the model |
+| `/reset` | Clear conversation history while retaining workspace/exclusions |
+| `/exit` | End the session |
+| Ctrl+C | Cancel an active model request and end the session |
+| EOF | Finish accepted queued input and end the session |
+
+Slash-prefixed input is reserved for commands; unknown commands show help without
+calling the model. Prompts run sequentially. Input entered while a turn is running
+is queued, so `/reset` and `/exit` run after that turn; use Ctrl+C for immediate
+interruption. In PowerShell, EOF can be sent with Ctrl+Z then Enter; POSIX terminals
+usually use Ctrl+D on an empty line.
+
+Try a follow-up conversation:
+
+```text
+> Remember that I am learning Vue composables.
+> What topic did I ask you to remember?
+> /reset
+> What topic did I ask you to remember?
+> /exit
+```
+
+After reset, the earlier topic is no longer in the model's conversation context.
+With a workspace selected, listing, reading, and search are available throughout
+the session. The selected canonical root and exclusions are copied when the
+session starts and cannot be changed by a later prompt or reset.
+
+### Session history policy
+
+| Boundary | Default |
+| --- | --- |
+| Retained complete user turns | At most 10 |
+| Serialized retained messages, including system instructions | At most 256 KiB UTF-8 JSON |
+| Interactive prompt size | At most 16 KiB UTF-8 |
+| Active request history, including current turn | At most 1 MiB UTF-8 JSON |
+| Tool-call budget | Five requested calls for every user turn |
+
+A turn includes its user prompt, assistant tool requests, corresponding tool
+results, and final assistant answer. History evicts oldest complete turns until
+both retention limits are satisfied. Individual tool messages are never removed
+from the middle of a retained exchange. The CLI prints a `[history]` notice when
+turns are dropped. There is no automatic summarization.
+
+If one successful turn alone exceeds the 256 KiB retention budget, its answer is
+shown but that entire turn is discarded from retained history, along with older
+turns as needed. A follow-up cannot rely on discarded context. If active history
+exceeds 1 MiB, the turn fails instead of making another oversized model request
+or committing that answer. These checks bound serialized history, not every
+transient allocation made by the HTTP client or model runtime.
+
+Only successful turns are committed. Transport errors, malformed responses,
+empty answers, exceeded tool budgets, oversized active history, and cancellation
+leave previously committed history unchanged. A failed interactive turn reports
+its error and accepts the next prompt. Each new turn gets five fresh tool calls,
+including failed tool requests. Reset and failed turns retain the workspace.
+
+Session state exists only in memory and is lost when the process exits. Separate
+sessions do not share history. One-shot failures and invalid startup options keep
+a nonzero exit status; normal interactive exit, EOF, and handled Ctrl+C exit
+cleanly. A recoverable interactive turn error does not terminate the session.
+
+### Execution and terminal separation
+
+`AgentSession` owns retained history and provides `run`, `reset`, and defensive
+`getHistory` snapshots. It uses the same `runTurn` implementation as one-shot
+`runAgent`. Execution emits optional `onTool` callbacks and accepts an abort
+signal; terminal input/output belongs to the CLI adapter.
+
+The Ollama client combines cancellation with its existing 180-second timeout.
+Ctrl+C aborts pending model transport and prevents another model request. Local
+filesystem operations already in flight finish before the engine observes
+cancellation at the next checkpoint; they cannot be forcibly interrupted.
+
+### Interactive acceptance checks
+
+Run `npm test`, `npm run lint`, and `npm run check`. Tests cover session isolation,
+follow-up history, reset, workspace preservation, whole-turn retention limits,
+per-turn tool budgets, failures, cancellation, EOF, and terminal subprocess flows.
+POSIX subprocess signal tests run on POSIX; check native Ctrl+C manually on Windows.
+
+With Ollama running:
+
+1. Start `npm start -- --interactive` and run the Vue-topic conversation above.
+2. Confirm the follow-up recalls the topic before reset and does not rely on it
+   after reset. Empty input should not start model activity.
+3. Ask for the UTC time twice; confirm the time tool is available on both turns.
+4. Start with a workspace, ask to search/read startup code, then ask a related
+   follow-up. Verify file and line citations against inspected source.
+5. Use `/reset`; confirm repository tools and exclusions still apply.
+6. During a slow answer, press Ctrl+C. Confirm clean exit without waiting for the
+   180-second timeout. Also test idle Ctrl+C, EOF, and `/exit`.
+7. Run an existing one-shot general question and UTC-time command.

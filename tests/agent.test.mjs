@@ -55,12 +55,12 @@ test("a time call preserves the full assistant request and corresponding result"
 });
 
 test("unknown tools and invalid arguments return errors without executing", async (t) => {
-  const logs = t.mock.method(console, "error", () => {});
+  const executions = [];
   const requests = mockOllama(t, [reply("", [call("unknown"), call("get_current_time", { timezone: "UTC" })]), reply("recovered")]);
-  assert.equal(await runAgent("time"), "recovered");
+  assert.equal(await runAgent("time", undefined, { onTool: name => executions.push(name) }), "recovered");
   assert.match(JSON.parse(requests[1].messages[3].content).error, /Unknown tool/);
   assert.match(JSON.parse(requests[1].messages[4].content).error, /Invalid arguments/);
-  assert.equal(logs.mock.callCount(), 0);
+  assert.equal(executions.length, 0);
 });
 
 test("exactly five calls are allowed and tools are then omitted", async (t) => {
@@ -72,17 +72,17 @@ test("exactly five calls are allowed and tools are then omitted", async (t) => {
 });
 
 test("an initial oversized batch executes no calls", async (t) => {
-  const logs = t.mock.method(console, "error", () => {});
+  const executions = [];
   mockOllama(t, [reply("", Array.from({ length: 6 }, () => call()))]);
-  await assert.rejects(runAgent("time"), /limit of 5 tool calls/);
-  assert.equal(logs.mock.callCount(), 0);
+  await assert.rejects(runAgent("time", undefined, { onTool: name => executions.push(name) }), /limit of 5 tool calls/);
+  assert.equal(executions.length, 0);
 });
 
 test("a later batch is rejected atomically against the remaining budget", async (t) => {
-  const logs = t.mock.method(console, "error", () => {});
+  const executions = [];
   mockOllama(t, [reply("", Array.from({ length: 4 }, () => call())), reply("", [call(), call()])]);
-  await assert.rejects(runAgent("time"), /limit of 5 tool calls/);
-  assert.equal(logs.mock.callCount(), 4);
+  await assert.rejects(runAgent("time", undefined, { onTool: name => executions.push(name) }), /limit of 5 tool calls/);
+  assert.equal(executions.length, 4);
 });
 
 test("rejected requests also exhaust the budget", async (t) => {
@@ -93,10 +93,10 @@ test("rejected requests also exhaust the budget", async (t) => {
 });
 
 test("malformed later calls prevent the entire response from reaching execution", async (t) => {
-  const logs = t.mock.method(console, "error", () => {});
+  const executions = [];
   mockOllama(t, [reply("", [call(), call("get_current_time", [])])]);
-  await assert.rejects(runAgent("time"), /Malformed Ollama response/);
-  assert.equal(logs.mock.callCount(), 0);
+  await assert.rejects(runAgent("time", undefined, { onTool: name => executions.push(name) }), /Malformed Ollama response/);
+  assert.equal(executions.length, 0);
 });
 
 test("empty final answers fail clearly", async (t) => {
