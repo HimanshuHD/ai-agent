@@ -144,7 +144,7 @@ test("workspace registers listing and returns its result with complete history",
   const requests = model(t, [call({ directory: "src" }), answer]);
   t.mock.method(console, "error", () => {});
   assert.equal(await runAgent("list", await createWorkspace(root)), "done");
-  assert.deepEqual(requests[0].tools.map(tool => tool.function.name), ["get_current_time", "list_files", "read_file"]);
+  assert.deepEqual(requests[0].tools.map(tool => tool.function.name), ["get_current_time", "list_files", "read_file", "search_text"]);
   assert.deepEqual(requests[1].messages[2], call({ directory: "src" }));
   const result = JSON.parse(requests[1].messages[3].content);
   assert.deepEqual(result.files, ["src/main.ts"]);

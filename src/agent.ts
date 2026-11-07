@@ -1,3 +1,4 @@
+import { searchText, validateSearchQuery } from "./search-text.js";
 import { readWorkspaceFile, validateReadRange } from "./read-file.js";
 import { chat, type Message, type ToolDefinition } from "./ollama.js";
 import { listFiles, type Workspace } from "./workspace.js";
@@ -45,6 +46,22 @@ const readFileTool: ToolDefinition = {
   },
 };
 
+const searchTextTool: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "search_text",
+    description: "Search allowed workspace UTF-8 files for a case-sensitive, single-line literal. Returns bounded path/line excerpts and completeness status.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", minLength: 1, maxLength: 200, description: "Literal query, not a regular expression." },
+        directory: { type: "string", description: "Optional workspace-relative directory; defaults to the root." },
+      },
+      required: ["query"],
+    },
+  },
+};
+
 const maxToolCalls = 5;
 
 export async function runAgent(prompt: string, workspace?: Workspace): Promise<string> {
@@ -56,6 +73,9 @@ export async function runAgent(prompt: string, workspace?: Workspace): Promise<s
         + "Use the tool result as the source for the current UTC time. "
         + (workspace
           ? "Use list_files for workspace structure questions. Only describe files returned by the tool. "
+          + "Use search_text to locate identifiers or implementation before choosing files to read. "
+          + "Search uses case-sensitive literals. Use matching paths and line numbers to guide read_file. "
+          + "Do not claim there are no matches when search results are incomplete. "
           + "Use read_file to inspect relevant files before explaining implementation. "
           + "Cite only inspected file paths and relevant line numbers, for example src/index.ts:4-8. "
           + "Explain when results are truncated or available evidence is insufficient. "
@@ -69,7 +89,7 @@ export async function runAgent(prompt: string, workspace?: Workspace): Promise<s
   let toolCallsUsed = 0;
 
   while (true) {
-    const availableTools = workspace ? [currentTimeTool, listFilesTool, readFileTool] : [currentTimeTool];
+    const availableTools = workspace ? [currentTimeTool, listFilesTool, readFileTool, searchTextTool] : [currentTimeTool];
     const tools = toolCallsUsed < maxToolCalls ? availableTools : [];
     const reply = await chat(messages, tools);
     const calls = reply.tool_calls ?? [];
@@ -136,6 +156,28 @@ export async function runAgent(prompt: string, workspace?: Workspace): Promise<s
           }
           catch (error) {
             result = { error: `Could not read file: ${error instanceof Error ? error.message : "File access failed."}` };
+          }
+        }
+      }
+      else if (call.name === searchTextTool.function.name && workspace) {
+        const { query, directory } = call.arguments;
+        const valid = Object.keys(call.arguments).every(key => ["query", "directory"].includes(key))
+          && typeof query === "string"
+          && (directory === undefined || typeof directory === "string");
+        if (!valid) {
+          result = { error: "Invalid arguments for search_text: expected a literal query and optional string directory." };
+        }
+        else {
+          try {
+            validateSearchQuery(query);
+            console.error("[tool] search_text");
+            result = await searchText(workspace, query, directory as string | undefined);
+          }
+          catch (error) {
+            const detail = error instanceof Error && !("code" in error)
+              ? error.message
+              : "Directory is missing or inaccessible.";
+            result = { error: `Could not search text: ${detail}` };
           }
         }
       }
