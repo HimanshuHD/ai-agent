@@ -5,7 +5,7 @@ import { createWorkspace } from "./workspace.js";
 try {
   const { prompt, workspacePath, excludePaths } = parseArgs(process.argv.slice(2));
   const workspace = workspacePath === undefined ? undefined : await createWorkspace(workspacePath, excludePaths);
-  console.log(await runAgent(prompt, workspace));
+  console.log(await runAgent(prompt, workspace, { onTool: name => console.error(`[tool] ${name}`) }));
 }
 catch (error) {
   console.error("Agent run failed..!!", error);
