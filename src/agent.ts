@@ -8,9 +8,9 @@ const currentTimeTool: ToolDefinition = {
     parameters: {
       type: "object",
       properties: {},
-      required: []
-    }
-  }
+      required: [],
+    },
+  },
 };
 
 const maxToolCalls = 5;
@@ -20,10 +20,10 @@ export async function runAgent(prompt: string): Promise<string> {
     {
       role: "system",
       content:
-        "Use get_current_time when the user asks for the current date or time. " +
-        "Use the tool result as the source for the current UTC time."
+        "Use get_current_time when the user asks for the current date or time. "
+        + "Use the tool result as the source for the current UTC time.",
     },
-    { role: "user", content: prompt }
+    { role: "user", content: prompt },
   ];
 
   let toolCallsUsed = 0;
@@ -48,9 +48,9 @@ export async function runAgent(prompt: string): Promise<string> {
     for (const { function: call } of calls) {
       toolCallsUsed += 1;
 
-      const isValid =
-        call.name === currentTimeTool.function.name &&
-        Object.keys(call.arguments ?? {}).length === 0;
+      const isValid
+        = call.name === currentTimeTool.function.name
+          && Object.keys(call.arguments ?? {}).length === 0;
 
       if (isValid) {
         console.error("[tool] get_current_time");
@@ -61,7 +61,7 @@ export async function runAgent(prompt: string): Promise<string> {
         tool_name: call.name,
         content: isValid
           ? JSON.stringify({ utc: new Date().toISOString() })
-          : JSON.stringify({ error: "Unknown tool or unexpected arguments." })
+          : JSON.stringify({ error: "Unknown tool or unexpected arguments." }),
       });
     }
   }

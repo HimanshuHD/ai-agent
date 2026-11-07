@@ -5,7 +5,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix --max-warnings 0"
   },
   "repository": {
     "type": "git",
@@ -24,7 +26,12 @@
   },
   "private": true,
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@stylistic/eslint-plugin": "^5.10.0",
     "@types/node": "^24.19.2",
-    "typescript": "^7.0.2"
+    "eslint": "^10.14.0",
+    "globals": "^17.14.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "^8.72.1"
   }
 }
