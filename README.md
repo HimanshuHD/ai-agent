@@ -6,7 +6,7 @@ A learning project for building a local AI agent in TypeScript with Node.js and 
 
 Build a command-line assistant that can use tools to answer a question. The
 time tool reads the machine's current UTC time. Workspace tools list files and
-read bounded text ranges. Repository text search is a planned follow-up.
+read bounded text ranges, and search for literal text with evidence references.
 
 ## Requirements
 
@@ -298,3 +298,122 @@ not read and the agent explains the access limitation or uses other available
 sources without claiming it inspected the excluded file. Also ask for a missing
 file and then an allowed file in one prompt to exercise recovery. Repeat the
 existing listing and UTC-time examples to check both tools still work.
+
+## Search repository text before reading
+
+With a workspace selected, `search_text` locates relevant code using literal,
+case-sensitive text. The agent can then use the returned paths and line numbers
+to choose a `read_file` range:
+
+```powershell
+npm start -- --workspace "D:\GitHub\ai-agent" "Search for runAgent, read the relevant startup source, and explain the application entry point with file and line citations."
+```
+
+Tool arguments:
+
+```json
+{"query":"runAgent","directory":"src"}
+```
+
+`query` is required; `directory` is optional and defaults to the workspace root.
+Unknown argument fields are rejected. Queries are single-line literals, not
+regular expressions. Case, punctuation, and leading/trailing spaces are matched
+exactly; no case folding or Unicode normalization is performed. Empty or
+whitespace-only queries, NULs, CR/LF, and queries above 200 UTF-16 code units fail
+validation. Searching for `a+b` matches those literal characters.
+
+### Search results and completeness
+
+Search returns one match per matching line, using its first literal occurrence
+for the excerpt. Matches follow sorted relative file-path order, then ascending
+one-based line numbers. Each match includes an excerpt (up to 240 UTF-16 code
+units) and `excerptTruncated`; excerpt boundaries preserve surrogate pairs.
+
+Example result:
+
+```json
+{
+  "query": "runAgent",
+  "directory": "src",
+  "caseSensitive": true,
+  "status": "matches",
+  "matches": [
+    {
+      "path": "src/index.ts",
+      "line": 8,
+      "excerpt": "  console.log(await runAgent(prompt, workspace));",
+      "excerptTruncated": false
+    }
+  ],
+  "filesScanned": 1,
+  "skippedBinary": 0,
+  "skippedOversized": 0,
+  "truncated": false,
+  "incomplete": false,
+  "limitReasons": [],
+  "errors": []
+}
+```
+
+The excerpt and line above illustrate the output structure; inspect your current
+source to confirm actual line numbers. Status has three values:
+
+- `matches`: completed search with at least one matching line.
+- `no_matches`: completed search with no matches in eligible text files.
+- `incomplete`: a limit or file/directory error prevented a complete search,
+  whether or not some matches were found.
+
+A result with no matches and `incomplete: true` must not be described as proof
+that the query is absent from the workspace.
+
+### Search limits
+
+| Limit | Default |
+| --- | --- |
+| Query length | 200 UTF-16 code units |
+| File size | 1 MiB, shared with file reading |
+| File read attempts | 200 per search, including failures/skips |
+| Returned matching lines | 100 |
+| Excerpt length | 240 UTF-16 code units per match |
+| Execution deadline | 5 seconds, including traversal |
+| Candidate listing | Existing 8-level, 10,000-entry, 500-path limits |
+
+`limitReasons` can contain `depth`, `entries`, `paths`, `files`, `matches`, `time`,
+or `file_size`. Reaching the match cap conservatively marks the result incomplete.
+Oversized files are skipped, counted in `skippedOversized`, and make results
+incomplete because their text was not searched. Binary/unsupported-encoding files
+are counted in `skippedBinary` and skipped as outside the eligible UTF-8 corpus.
+Other access failures are returned in relative-path `errors` and make results
+incomplete. No absolute filesystem paths are returned in these errors.
+
+The deadline is cooperative: checks run while traversing entries, between file
+reads, after a read, and while scanning lines. Once expiry is observed, no further
+files are opened. An already-running OS filesystem operation cannot be forcibly
+interrupted, so slow storage can make elapsed time exceed five seconds. File-size,
+entry, attempt, and output bounds still apply.
+
+Search reuses the same path containment, exclusions, symlink/junction rejection,
+UTF-8 validation, binary checks, and bounded file reads. It inspects the whole
+allowed file (within 1 MiB), so a match after line 200 or after the read tool's
+16 KiB output window can still be found. Repository contents remain untrusted
+tool data. Search and subsequent reads share the five-tool-call run budget.
+
+### Search acceptance checks
+
+Run `npm test`, `npm run lint`, and `npm run check`. Tests cover literal/case
+behavior, excerpts and line references, no matches, exclusions, links, failures,
+query/file/output/traversal limits, deadline checks, and search-to-read history.
+Deadline tests inject a clock instead of waiting for real timeouts.
+
+With Ollama running, use the example above. Confirm `[tool] search_text` followed
+by `[tool] read_file`; compare final citations against the source actually read.
+Also try a nonexistent identifier and a search restricted to an excluded path:
+
+```powershell
+npm start -- --workspace "D:\GitHub\ai-agent" "Search for identifier_that_does_not_exist_93821 and report whether the search was complete."
+npm start -- --workspace "D:\GitHub\ai-agent" --exclude "src" "Search inside src for runAgent."
+```
+
+Expect an explicit complete no-match result for the first prompt if no limits or
+access errors occur, and a clear access limitation for the excluded directory.
+Repeat existing reading, listing, general-question, and UTC-time examples.
