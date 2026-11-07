@@ -5,8 +5,8 @@ A learning project for building a local AI agent in TypeScript with Node.js and 
 ## Goal
 
 Build a command-line assistant that can use tools to answer a question. The
-first tool reads the machine's current UTC time. Repository search and file
-reading are planned follow-ups.
+time tool reads the machine's current UTC time. Workspace tools list files and
+read bounded text ranges. Repository text search is a planned follow-up.
 
 ## Requirements
 
@@ -192,3 +192,109 @@ files, and an invalid-workspace error for the missing path before any model call
 The model may choose its own arguments, so automated fixtures provide the exact
 checks for path rejection and limit boundaries. Also repeat the existing general
 question and UTC-time examples without `--workspace` to confirm prompt-only use.
+
+## Read repository files with evidence
+
+With a workspace selected, the agent can use `read_file` to inspect text and cite
+file paths and line numbers in its explanation:
+
+```powershell
+npm start -- --workspace "D:\GitHub\ai-agent" "Read src/index.ts and explain startup. Cite the file and relevant line numbers."
+npm start -- --workspace "D:\GitHub\ai-agent" "Explain lines 1 through 30 of src/agent.ts using only the inspected source."
+```
+
+The model can request:
+
+```json
+{"path":"src/index.ts","startLine":1,"endLine":20}
+```
+
+`path` is required and must be a nonempty workspace-relative file path.
+`startLine` and `endLine` are optional positive safe integers, inclusive and
+one-based. `startLine` defaults to 1; omitted `endLine` requests the remaining
+file within output limits. Reversed ranges are rejected. An end beyond EOF is
+clamped to EOF. A start beyond EOF is an error, except that an empty file accepts
+start 1 and returns zero lines. Unknown argument fields are rejected.
+
+### Reading limits and text format
+
+| Limit | Default |
+| --- | --- |
+| File size | 1 MiB (1,048,576 bytes) |
+| Returned lines per call | 200 |
+| Returned content per call | 16 KiB (16,384 UTF-8 bytes) |
+
+Oversized files are rejected even when requesting a short range. Reads are bounded
+to the file-size limit plus one detection byte, including when a file grows after
+its initial size check. Only regular files are accepted. The opened handle is
+closed on both success and failure.
+
+The file must decode as UTF-8 (an optional BOM is accepted). Invalid UTF-8, NULs,
+and unsupported control characters are rejected as binary or unsupported text.
+Tabs, LF, CR, and form feed are accepted. This is a text heuristic, not a complete
+binary-format detector; UTF-16 and other encodings are unsupported.
+
+LF, CRLF, and CR are treated as line endings and returned content uses LF.
+A trailing newline does not create an extra synthetic line. An empty file has
+zero lines; a file containing only one newline has one blank line.
+
+Example result:
+
+```json
+{
+  "path": "src/index.ts",
+  "startLine": 1,
+  "endLine": 2,
+  "totalLines": 3,
+  "content": "import { runAgent } from \"./agent.js\";\nimport { parseArgs } from \"./cli.js\";",
+  "truncated": false,
+  "limitReasons": [],
+  "partialLastLine": false
+}
+```
+
+`endLine` is the last line represented in `content`. If no line is returned,
+`endLine` is `startLine - 1` (0 for an empty file). `limitReasons` can contain
+`lines` or `text`. UTF-8 characters are never split at the text boundary.
+`partialLastLine` indicates when the final returned line contains only a prefix.
+The byte limit applies to `content`, excluding JSON metadata and serialization.
+
+For a line-limited result, the model can request a later range. A single line
+longer than the byte cap is returned only as a prefix; this tool does not support
+character offsets to retrieve its tail. The agent should state when that leaves
+insufficient evidence.
+
+### Access and answer behavior
+
+Reading reuses the listing tool's workspace containment, default exclusions, and
+configured `--exclude` paths. Symbolic links, directory junctions, and links in
+parent components are rejected. The final file is also opened with no-follow
+where the platform supports it. The stable-local-filesystem assumption described
+above still applies.
+
+Missing files, denied access, disallowed paths, binary files, invalid ranges, and
+oversized files return descriptive tool errors to the model. They count toward
+the same five-call budget, and their requests/results remain in history so the
+agent can recover by choosing an allowed file.
+
+The system instructions require explanations to cite inspected paths and relevant
+line numbers, acknowledge incomplete evidence, and treat repository content as
+untrusted data. File contents stay inside tool results rather than being promoted
+to system instructions. These instructions guide model behavior; they do not
+mechanically verify every citation or guarantee resistance to embedded prompts.
+
+### File-reading acceptance checks
+
+Run `npm test`, `npm run lint`, and `npm run check`. Automated checks cover ranges,
+line endings, UTF-8 boundaries, file/output limits, file growth, handle cleanup,
+errors, shared path controls, tool registration, conversation history, and recovery.
+
+With Ollama running, use the first example above. Confirm `[tool] read_file`, then
+check that the explanation cites `src/index.ts` and line numbers matching the file.
+Verify cited code was actually read; a model-generated citation alone is not proof.
+
+Repeat with `--exclude "src/index.ts"` and the same prompt. Confirm that source is
+not read and the agent explains the access limitation or uses other available
+sources without claiming it inspected the excluded file. Also ask for a missing
+file and then an allowed file in one prompt to exercise recovery. Repeat the
+existing listing and UTC-time examples to check both tools still work.
