@@ -56,16 +56,21 @@ export async function createWorkspace(input: string, excludePaths: string[] = []
   return { root, excludePaths: excludes };
 }
 
-async function allowedDirectory(workspace: Workspace, input: string): Promise<string> {
+export async function resolveWorkspacePath(workspace: Workspace, input: string, kind: "file" | "directory"): Promise<string> {
   const relative = relativeInput(input);
-  if (isExcluded(relative, workspace)) throw new Error("Directory is excluded from workspace access.");
+  if (isExcluded(relative, workspace)) throw new Error("Path is excluded from workspace access.");
   let current = workspace.root;
   // Inspect each component: realpath alone would follow links inside the workspace.
-  for (const part of relative === "." ? [] : relative.split("/")) {
+  const parts = relative === "." ? [] : relative.split("/");
+  if (kind === "file" && parts.length === 0) throw new Error("Requested path is not a regular file.");
+  for (const [index, part] of parts.entries()) {
     current = path.join(current, part);
     const info = await fs.lstat(current);
     if (info.isSymbolicLink()) throw new Error("Symbolic links and directory junctions are not allowed.");
-    if (!info.isDirectory()) throw new Error("Requested path is not a directory.");
+    const expectsFile = kind === "file" && index === parts.length - 1;
+    if (expectsFile ? !info.isFile() : !info.isDirectory()) {
+      throw new Error(expectsFile ? "Requested path is not a regular file." : "Requested path is not a directory.");
+    }
   }
   const canonical = await fs.realpath(current);
   const fromRoot = path.relative(workspace.root, canonical);
@@ -81,7 +86,7 @@ export async function listFiles(workspace: Workspace, directory = ".", limits: L
       throw new Error(`Invalid listing limit: ${name}.`);
     }
   }
-  const start = await allowedDirectory(workspace, directory);
+  const start = await resolveWorkspacePath(workspace, directory, "directory");
   const files: string[] = [];
   const reasons = new Set<LimitReason>();
   const errors: { path: string; error: string }[] = [];
