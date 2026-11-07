@@ -36,3 +36,26 @@ npm start -- "What is the current UTC time? Include the full ISO timestamp."
 
 Look for `[tool] get_current_time` before the final answer. Each run has a
 budget of five tool calls.
+
+## Code quality
+
+Check code style and common issues:
+
+```powershell
+npm.cmd run lint
+```
+
+Apply automatic formatting and lint fixes:
+
+```powershell
+npm.cmd run lint:fix
+```
+
+Check types and compile:
+
+```powershell
+npm.cmd run check
+npm.cmd run build
+```
+
+TypeScript code uses two-space indentation, double quotes, and semicolons.
