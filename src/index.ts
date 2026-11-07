@@ -1,4 +1,5 @@
 import { chat } from "./ollama.js";
+import { runAgent } from "./agent.js";
 
 const prompt = process.argv.slice(2).join(" ").trim();
 
@@ -7,10 +8,9 @@ if (!prompt) {
     process.exitCode = 1;
 } else {
     try {
-        const reply = await chat([{ role: "user", content: prompt }]);
-        console.log(reply.content);
+        console.log(await runAgent(prompt));
     } catch (error) {
-        console.error("Could not complete the local model request.", error);
+        console.error("Agent run failed..!!", error);
         process.exitCode = 1;
     }
 }
