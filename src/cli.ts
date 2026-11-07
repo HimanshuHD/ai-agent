@@ -1,11 +1,14 @@
-export const usage = "Usage: npm start -- [--workspace \"path\"] [--exclude \"relative/path\"] \"Your prompt\"";
+export const usage = "Usage: npm start -- [--workspace \"path\"] [--exclude \"relative/path\"] \"Your prompt\""
+  + "\n       npm start -- --interactive [--workspace \"path\"] [--exclude \"relative/path\"]";
 
 export function parseArgs(args: string[]): {
   prompt: string;
+  interactive?: true;
   workspacePath?: string;
   excludePaths: string[];
 } {
   let workspacePath: string | undefined;
+  let interactive = false;
   const excludePaths: string[] = [];
   const promptParts: string[] = [];
   let optionsEnded = false;
@@ -14,6 +17,10 @@ export function parseArgs(args: string[]): {
     const arg = args[index];
     if (!optionsEnded && arg === "--") {
       optionsEnded = true;
+    }
+    else if (!optionsEnded && arg === "--interactive") {
+      if (interactive) throw new Error("Specify --interactive only once.");
+      interactive = true;
     }
     else if (!optionsEnded && (arg === "--workspace" || arg === "--exclude")) {
       const value = args[++index];
@@ -37,9 +44,10 @@ export function parseArgs(args: string[]): {
   }
 
   const prompt = promptParts.join(" ").trim();
-  if (!prompt) throw new Error(usage);
+  if (!prompt && !interactive) throw new Error(usage);
+  if (interactive && prompt) throw new Error("Use --interactive without a prompt; enter prompts in the session.");
   if (excludePaths.length && workspacePath === undefined) {
     throw new Error("--exclude requires --workspace.");
   }
-  return { prompt, workspacePath, excludePaths };
+  return { prompt, workspacePath, excludePaths, ...(interactive ? { interactive: true as const } : {}) };
 }
