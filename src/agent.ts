@@ -48,9 +48,12 @@ export async function runAgent(prompt: string): Promise<string> {
     for (const { function: call } of calls) {
       toolCallsUsed += 1;
 
-      const isValid
-        = call.name === currentTimeTool.function.name
-          && Object.keys(call.arguments ?? {}).length === 0;
+      const error = call.name !== currentTimeTool.function.name
+        ? `Unknown tool: ${call.name}. Available tool: get_current_time.`
+        : Object.keys(call.arguments).length > 0
+          ? "Invalid arguments for get_current_time: expected an empty object."
+          : undefined;
+      const isValid = error === undefined;
 
       if (isValid) {
         console.error("[tool] get_current_time");
@@ -61,7 +64,7 @@ export async function runAgent(prompt: string): Promise<string> {
         tool_name: call.name,
         content: isValid
           ? JSON.stringify({ utc: new Date().toISOString() })
-          : JSON.stringify({ error: "Unknown tool or unexpected arguments." }),
+          : JSON.stringify({ error }),
       });
     }
   }
