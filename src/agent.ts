@@ -1,6 +1,6 @@
 import { searchText, validateSearchQuery } from "./search-text.js";
 import { readWorkspaceFile, validateReadRange } from "./read-file.js";
-import { chat, type Message, type ToolDefinition } from "./ollama.js";
+import { chat, isObject, type Message, type ToolDefinition } from "./ollama.js";
 import { listFiles, type Workspace } from "./workspace.js";
 
 const currentTimeTool: ToolDefinition = {
@@ -64,7 +64,8 @@ const searchTextTool: ToolDefinition = {
 
 const maxToolCalls = 5;
 
-export type RunOptions = { signal?: AbortSignal; onTool?: (name: string) => void };
+export type ToolActivity = { type: "tool"; name: string; status: "running" | "completed" | "failed"; error?: string };
+export type RunOptions = { signal?: AbortSignal; onTool?: (name: string) => void; onEvent?: (event: ToolActivity) => void };
 export const maxRunBytes = 1_048_576;
 
 export function initialMessages(workspace?: Workspace): Message[] {
@@ -95,6 +96,10 @@ export async function runAgent(prompt: string, workspace?: Workspace, options: R
 }
 
 export async function runTurn(messages: Message[], workspace?: Workspace, options: RunOptions = {}): Promise<string> {
+  const started = (name: string) => {
+    options.onTool?.(name);
+    options.onEvent?.({ type: "tool", name, status: "running" });
+  };
   const check = () => {
     options.signal?.throwIfAborted();
     if (Buffer.byteLength(JSON.stringify(messages), "utf8") > maxRunBytes) {
@@ -135,7 +140,7 @@ export async function runTurn(messages: Message[], workspace?: Workspace, option
           result = { error: "Invalid arguments for get_current_time: expected an empty object." };
         }
         else {
-          options.onTool?.("get_current_time");
+          started("get_current_time");
           result = { utc: new Date().toISOString() };
         }
       }
@@ -147,7 +152,7 @@ export async function runTurn(messages: Message[], workspace?: Workspace, option
         }
         else {
           try {
-            options.onTool?.("list_files");
+            started("list_files");
             result = await listFiles(workspace, call.arguments.directory as string | undefined);
           }
           catch (error) {
@@ -171,7 +176,7 @@ export async function runTurn(messages: Message[], workspace?: Workspace, option
           try {
             const range = { startLine: startLine as number | undefined, endLine: endLine as number | undefined };
             validateReadRange(range);
-            options.onTool?.("read_file");
+            started("read_file");
             result = await readWorkspaceFile(workspace, filePath, range);
           }
           catch (error) {
@@ -190,7 +195,7 @@ export async function runTurn(messages: Message[], workspace?: Workspace, option
         else {
           try {
             validateSearchQuery(query);
-            options.onTool?.("search_text");
+            started("search_text");
             result = await searchText(workspace, query, directory as string | undefined);
           }
           catch (error) {
@@ -205,6 +210,8 @@ export async function runTurn(messages: Message[], workspace?: Workspace, option
         result = { error: `Unknown tool: ${call.name}. Available tools: ${availableTools.map(tool => tool.function.name).join(", ")}.` };
       }
 
+      const error = isObject(result) && typeof result.error === "string" ? result.error : undefined;
+      options.onEvent?.({ type: "tool", name: call.name, status: error ? "failed" : "completed", ...(error ? { error } : {}) });
       messages.push({
         role: "tool",
         tool_name: call.name,
