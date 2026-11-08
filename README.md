@@ -525,3 +525,129 @@ With Ollama running:
 6. During a slow answer, press Ctrl+C. Confirm clean exit without waiting for the
    180-second timeout. Also test idle Ctrl+C, EOF, and `/exit`.
 7. Run an existing one-shot general question and UTC-time command.
+
+## Local web interface
+
+The Vue interface uses the same agent engine and `AgentSession` as the CLI.
+Start Ollama and make the selected model available, then build and start:
+
+```powershell
+npm ci
+npm run build
+$env:AGENT_WORKSPACE = "D:\GitHub\ai-agent"
+$env:AGENT_EXCLUDE = "private,docs/internal"
+# Optional: $env:OLLAMA_MODEL = "qwen3:1.7b"
+npm run web:server
+```
+
+Open **http://127.0.0.1:3000/**. Omit `AGENT_WORKSPACE` for general questions and
+the time tool only. The workspace is validated and canonicalized before startup;
+web requests cannot select or change it. `AGENT_EXCLUDE` is a comma-separated list
+of literal workspace-relative exclusions, using the existing filesystem rules.
+The backend binds to `127.0.0.1`; remote/multi-user hosting is outside this delivery.
+
+Use Enter to send, Shift+Enter for a new line, **Cancel run** to abort, and
+**Reset conversation** to clear the model context while retaining the workspace.
+Tool running/completed/failed events appear as they happen. Output is rendered as
+plain text through Vue interpolation; HTML and Markdown are not executed.
+Messages cannot be submitted twice while a run is active.
+
+Each page load opens a separate conversation with a random bearer capability held
+only in page memory. Refresh starts a new conversation. **New connection** deletes
+the previous session before opening another; use it to recover from expiry.
+Closing a tab abandons its session until expiry, but disconnecting its active
+response aborts that run. Tokens and conversations are not saved to disk.
+
+### Web runtime limits
+
+| Boundary | Default |
+| --- | --- |
+| Browser sessions | 20 |
+| Idle session expiry | 30 minutes |
+| Absolute session lifetime | 2 hours |
+| Active runs per session | 1 |
+| Active runs across the server | 2 |
+| Overall web run deadline | 180 seconds |
+| JSON request body | 20 KiB |
+| Prompt | 16 KiB UTF-8 |
+| Model history | Existing 10-turn / 256 KiB retention and 1 MiB active limit |
+| Visible browser transcript | Latest 20 turns |
+
+Expired sessions are removed on requests and by periodic cleanup. Cancelling,
+disconnecting, or timing out aborts model transport and leaves prior committed
+history intact. A filesystem tool already in progress may finish under its own
+bounds before cancellation is observed. Reset is rejected during an active run.
+A history-drop notice explains when older messages visible in the transcript are
+no longer present in model context.
+
+### Development and browser checks
+
+Run the backend as above. In another terminal, run `npm run web:dev` and open
+**http://127.0.0.1:5173/**. Vite proxies `/api` to port 3000. If changing the backend
+port, update the proxy target in `vite.config.ts` as well.
+
+```powershell
+npm test
+npm run lint
+npm run check
+npx playwright install chromium
+npm run test:browser
+```
+
+`npm test` builds the Node code and runs CLI/session/filesystem/API checks.
+`npm run check` includes Vue/TypeScript, and `npm run build` builds Node plus the
+static frontend in `web-dist`. Browser checks use the real HTTP backend and a
+mocked model, so Ollama is not required. They cover conversations, isolation,
+reset, tools, safe output, failure/retry, cancellation, deadlines, keyboard use,
+and mobile overflow. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` only when using an
+existing compatible Chromium installation. Screenshots go to the OS temp folder.
+
+For live acceptance, ask for the UTC time, then search/read startup code and verify
+file/line citations. Ask a follow-up; open a second tab and confirm it has separate
+context. Reset, cancel a slow run, and repeat an existing CLI command. Live model
+behavior and Windows-specific checks require a local Ollama setup.
+
+### API and origin boundary
+
+All API calls require `X-Agent-Client: local-web` and JSON bodies. Session routes
+also require `Authorization: Bearer <session token>`. Browser origins must match
+the server's loopback origin or the explicit allowlist; Host headers must match
+localhost/127.0.0.1 with the actual port. The default additional origins are
+`http://127.0.0.1:5173` and `http://localhost:5173` for development. Set
+`WEB_ALLOWED_ORIGINS` to a comma-separated replacement list of exact HTTP(S)
+origins without paths or trailing slashes. Wildcards are not supported.
+
+| Route | Behavior |
+| --- | --- |
+| POST /api/sessions | Create isolated session; body `{}` |
+| POST /api/prompt | Run `{ "prompt": "..." }`; stream newline-delimited JSON events |
+| POST /api/reset | Clear this session; body `{}` |
+| POST /api/cancel | Cancel this session's active run; body `{}` |
+| DELETE /api/session | Delete/cancel this session; body `{}` |
+
+Stream events are `running`, `tool`, `answer`, `error`, or `cancelled`. Non-stream
+errors use `{ "error": { "code": "...", "message": "..." } }` and HTTP status
+codes. The frontend receives metadata and allowed tool results, not a general
+filesystem endpoint. Origin checks and bearer capabilities are local boundaries,
+not a substitute for authentication for remote hosting or protection from other
+trusted local processes.
+
+### Static hosting compatibility
+
+`VITE_BASE_PATH` sets the frontend build base (for example `/ai-agent/`).
+`VITE_API_URL` sets the backend origin (for example `http://127.0.0.1:3000`),
+defaulting to same-origin `/api`. Both are build-time variables. `WEB_BASE_PATH`
+sets the matching prefix when serving a subpath through the local Node server.
+`PORT` sets the backend port, defaulting to 3000. Ollama model selection remains
+independently controlled by `OLLAMA_MODEL`.
+
+GitHub Pages can host `web-dist`, but cannot run Node or Ollama. Pages deployment,
+HTTPS-to-loopback browser permissions, mixed-content behavior, streaming, and CORS
+compatibility are tracked in **#14**. A hosted frontend does not automatically gain
+access to a local backend; only explicitly allowed origins may connect.
+
+Troubleshooting: build before starting the production server; ensure Ollama is
+running for model answers; use New connection after session expiry; wait or cancel
+when server concurrency is full; check exact allowed origins and the Vite proxy
+port when browser requests fail. A connected backend does not by itself confirm
+that the selected Ollama model is available.
