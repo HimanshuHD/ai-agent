@@ -7,7 +7,9 @@ try {
   const { prompt, workspacePath, excludePaths, interactive } = parseArgs(process.argv.slice(2));
   const workspace = workspacePath === undefined ? undefined : await createWorkspace(workspacePath, excludePaths);
   if (interactive) await runInteractive(workspace);
-  else console.log(await runAgent(prompt, workspace, { onTool: name => console.error(`[tool] ${name}`) }));
+  else console.log(await runAgent(prompt, workspace, { onEvent: (event) => {
+    if (event.status === "running") console.error(`[tool] ${event.name}`);
+  } }));
 }
 catch (error) {
   console.error("Agent run failed..!!", error);

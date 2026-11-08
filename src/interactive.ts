@@ -49,7 +49,9 @@ export async function runInteractive(workspace?: Workspace, io: {
         try {
           const result = await session.run(line, {
             signal: active.signal,
-            onTool: name => io.error.write(`[tool] ${name}\n`),
+            onEvent: (event) => {
+              if (event.status === "running") io.error.write(`[tool] ${event.name}\n`);
+            },
           });
           if (!stopped) {
             io.output.write(`${result.answer}\n`);
